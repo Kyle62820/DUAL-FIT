@@ -79,7 +79,31 @@ async function signup(){try{let email=$('email').value.trim(),password=$('passwo
 async function login(){try{let a=await auth('token?grant_type=password',{email:$('email').value.trim(),password:$('password').value});accessToken=a.access_token;currentUser=a.user;await loadProfile();closeBox('auth');toast('Connexion réussie')}catch(e){authStatus(e.message)}}
 async function loadProfile(){let p=await rest('profiles?id=eq.'+currentUser.id+'&select=id,username,xp,level');if(!p.length)throw Error('Profil introuvable');$('userBtn').textContent='👤 '+p[0].username;$('account').textContent='Connecté en tant que '+p[0].username+' · niveau '+p[0].level+' · '+p[0].xp+' XP';await refresh()}
 async function logout(){accessToken=null;currentUser=null;$('userBtn').textContent='Connexion';$('account').textContent='Pas encore connecté.';$('challenges').innerHTML='<div class="muted">Connecte-toi pour charger les défis.</div>';$('feed').innerHTML='<div class="muted">Connecte-toi pour voir les messages.</div>';toast('Déconnecté');closeBox('auth')}
-async function refresh(){if(!currentUser)return;try{let prof=await rest('profiles?select=id,username&order=created_at.asc');let rows=await rest('sessions?select=user_id,points');let score={};rows.forEach(x=>score[x.user_id]=(score[x.user_id]||0)+Number(x.points||0));let pair=prof.slice(0,2);while(pair.length<2)pair.push({id:'',username:pair.length?'Agathe':'Johan'});$('n1').textContent=pair[0].username;$('n2').textContent=pair[1].username;$('av1').textContent=pair[0].username[0].toUpperCase();$('av2').textContent=pair[1].username[0].toUpperCase();let a=score[pair[0].id]||0,b=score[pair[1].id]||0;$('p1').textContent=a;$('p2').textContent=b;$('fill').style.width=(a/(Math.max(1,a+b))*100)+'%';$('lead').textContent=a>=b?pair[0].username+' +'+(a-b):pair[1].username+' +'+(b-a);let cs=await rest('challenges?select=id,name,challenge_type,target,end_at,mode&order=end_at.asc');$('challenges').innerHTML=cs.length?cs.slice(0,8).map(c=>'<div class="challenge"><b>'+esc(c.name)+'</b><div class="muted">'+c.challenge_type+' · objectif '+c.target+' · fin '+new Date(c.end_at).toLocaleDateString('fr-FR')+'</div></div>').join(''):'<div class="muted">Aucun défi. Crée le premier !</div>';let ms=await rest('messages?select=body,created_at&order=created_at.desc&limit=8');$('feed').innerHTML=ms.length?ms.map(m=>'<div>'+esc(m.body)+'<br><span class="muted">'+new Date(m.created_at).toLocaleString('fr-FR')+'</span></div>').join(''):'<div class="muted">Aucun message.</div>'}catch(e){toast('Erreur de synchronisation')}}
+async function refresh(){
+ if(!currentUser)return;
+ const errors=[];
+ let prof=[];
+ try{prof=await rest('profiles?select=id,username')}catch(e){errors.push('profils');prof=[{id:currentUser.id,username:$('userBtn').textContent.replace('👤 ','')||'Johan'}]}
+ let rows=[];
+ try{rows=await rest('sessions?select=user_id,points')}catch(e){errors.push('séances')}
+ let score={};rows.forEach(x=>score[x.user_id]=(score[x.user_id]||0)+Number(x.points||0));
+ let pair=prof.slice(0,2);
+ while(pair.length<2)pair.push({id:'',username:pair.length?'Agathe':'Johan'});
+ $('n1').textContent=pair[0].username;$('n2').textContent=pair[1].username;
+ $('av1').textContent=pair[0].username[0].toUpperCase();$('av2').textContent=pair[1].username[0].toUpperCase();
+ let a=score[pair[0].id]||0,b=score[pair[1].id]||0;
+ $('p1').textContent=a;$('p2').textContent=b;$('fill').style.width=(a/(Math.max(1,a+b))*100)+'%';
+ $('lead').textContent=a>=b?pair[0].username+' +'+(a-b):pair[1].username+' +'+(b-a);
+ try{
+  let cs=await rest('challenges?select=id,name,challenge_type,target,end_at,mode&order=end_at.asc');
+  $('challenges').innerHTML=cs.length?cs.slice(0,8).map(c=>'<div class="challenge"><b>'+esc(c.name)+'</b><div class="muted">'+c.challenge_type+' · objectif '+c.target+' · fin '+new Date(c.end_at).toLocaleDateString('fr-FR')+'</div></div>').join(''):'<div class="muted">Aucun défi. Crée le premier !</div>';
+ }catch(e){errors.push('défis');$('challenges').innerHTML='<div class="muted">Impossible de charger les défis pour le moment.</div>'}
+ try{
+  let ms=await rest('messages?select=body,created_at&order=created_at.desc&limit=8');
+  $('feed').innerHTML=ms.length?ms.map(m=>'<div>'+esc(m.body)+'<br><span class="muted">'+new Date(m.created_at).toLocaleString('fr-FR')+'</span></div>').join(''):'<div class="muted">Aucun message.</div>';
+ }catch(e){errors.push('messages');$('feed').innerHTML='<div class="muted">Aucun encouragement pour le moment.</div>'}
+ if(errors.length)toast('Synchronisation partielle : '+errors.join(', '));
+}
 async function addSession(){if(!currentUser)return toast('Connecte-toi d’abord');let d=Number($('dist').value)||0,m=Number($('mins').value)||0;if(!d&&!m)return toast('Ajoute une distance ou une durée');let points=Math.round(d*10+m*.5+20);try{await rest('sessions',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({user_id:currentUser.id,sport:$('sport').value,distance_km:d,duration_min:m,points})});closeBox('session');toast('Séance enregistrée : +'+points+' pts');refresh()}catch(e){toast('Impossible d’enregistrer la séance')}}
 async function createChallenge(){if(!currentUser)return toast('Connecte-toi d’abord');let name=$('cname').value.trim(),target=Number($('target').value)||0,end=$('end').value;if(!name||!end)return toast('Nom et date de fin requis');try{let c=await rest('challenges',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({creator_id:currentUser.id,name,challenge_type:$('ctype').value,target,start_at:new Date().toISOString(),end_at:new Date(end+'T23:59:59').toISOString(),mode:'duel'})});if(c[0])await rest('challenge_participants',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({challenge_id:c[0].id,user_id:currentUser.id})});closeBox('challenge');toast('Défi créé');refresh()}catch(e){toast('Impossible de créer le défi')}}
 async function sendMessage(body){if(!currentUser)return toast('Connecte-toi d’abord');try{await rest('messages',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({sender_id:currentUser.id,body})});refresh()}catch(e){toast('Message non envoyé')}}
