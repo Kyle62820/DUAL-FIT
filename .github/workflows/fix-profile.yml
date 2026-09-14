@@ -1,0 +1,43 @@
+name: Fix DUEL FIT profile editor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-profile.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-profile-editor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add editable username
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          old_button = '<button class="btn danger" style="width:100%;margin-top:10px" onclick="logout()">Se déconnecter</button>'
+          new_button = old_button + '<button class="btn soft" style="width:100%;margin-top:8px" onclick="saveUsername()">Enregistrer le pseudo</button>'
+          if 'onclick="saveUsername()"' not in s:
+              s = s.replace(old_button, new_button, 1)
+          old_load = "$('userBtn').textContent='👤 '+p[0].username;$('account').textContent='Connecté en tant que '+p[0].username+' · niveau '+p[0].level+' · '+p[0].xp+' XP';"
+          new_load = "$('username').value=p[0].username;$('userBtn').textContent='👤 '+p[0].username;$('account').textContent='Connecté en tant que '+p[0].username+' · niveau '+p[0].level+' · '+p[0].xp+' XP';"
+          if "$('username').value=p[0].username" not in s:
+              s = s.replace(old_load, new_load, 1)
+          marker = '</script></body></html>'
+          fn = "async function saveUsername(){if(!currentUser)return toast('Connecte-toi d’abord');const username=$('username').value.trim();if(!username)return authStatus('Entre un pseudo.');try{await rest('profiles?id=eq.'+encodeURIComponent(currentUser.id),{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({username})});$('userBtn').textContent='👤 '+username;$('account').textContent='Connecté en tant que '+username;authStatus('Pseudo enregistré.',true);toast('Pseudo enregistré');await refresh()}catch(e){authStatus('Impossible d’enregistrer le pseudo : '+(e.message||String(e)))}}"
+          if 'async function saveUsername()' not in s:
+              s = s.replace(marker, fn + marker, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git diff --cached --quiet || git commit -m 'Fix editable profile username'
+          git push
